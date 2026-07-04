@@ -16,7 +16,6 @@ public abstract class NetConnection{
     public boolean mobile, modclient;
     public @Nullable Player player;
     public boolean kicked = false;
-    public long syncTime;
 
     /** When this connection was established. */
     public long connectTime = Time.millis();
@@ -32,6 +31,8 @@ public abstract class NetConnection{
     public Ratekeeper chatRate = new Ratekeeper();
     /** Handles packet spam rate limits. */
     public Ratekeeper packetRate = new Ratekeeper();
+    /** Entities that only this player will get synced to them. */
+    public Seq<Syncc> localEntities = new Seq<>(false);
 
     //TODO: refactor to state enum
     public boolean hasConnected, hasBegunConnecting, determiningAssets, receivingAssets, hasDisconnected;
@@ -127,6 +128,10 @@ public abstract class NetConnection{
         }catch(IOException e){
             throw new RuntimeException(e);
         }
+    }
+
+    public void blacklist(){
+        netServer.admins.blacklistDos(address);
     }
 
     public abstract void send(Object object, boolean reliable);
