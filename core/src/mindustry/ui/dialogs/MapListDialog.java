@@ -41,6 +41,8 @@ public abstract class MapListDialog extends BaseDialog{
     searchModname = Core.settings.getBool("editorsearchmodname", false),
     prioritizeModded = Core.settings.getBool("editorprioritizemodded", false),
     prioritizeCustom = Core.settings.getBool("editorprioritizecustom", false),
+    sortBy = Core.settings.getBool("editorsortby", false),
+    sortOrder = Core.settings.getBool("editorsortorder", false),
     displayType;
     private Seq<String> planets = Core.settings.getJson("editorfilterplanets", Seq.class, String.class, Seq::new);
 
@@ -128,18 +130,37 @@ public abstract class MapListDialog extends BaseDialog{
 
         mapList.distinct();
 
+        java.util.Comparator<Map> dateSorter = sortOrder ?
+            (a, b) -> Long.compare(b.file.lastModified(), a.file.lastModified()) :
+            (a, b) -> Long.compare(a.file.lastModified(), b.file.lastModified());
+
+        java.util.Comparator<Map> nameSorter = sortOrder ?
+            (a, b) -> b.plainName().compareTo(a.plainName()) :
+            (a, b) -> a.plainName().compareTo(b.plainName());
+
         if(prioritizeModded){
             Seq<Map> ordered = new Seq<>();
-            ordered.addAll(mapList.select(m -> m.mod != null).sortComparing(m -> m.mod.meta.displayName));
-            ordered.addAll(mapList.select(m -> m.mod == null).sortComparing(m -> m.plainName()));
+            if(sortBy){
+                ordered.addAll(mapList.select(m -> m.mod != null).sort(dateSorter));
+                ordered.addAll(mapList.select(m -> m.mod == null).sort(dateSorter));
+            }else{
+                Seq<Map> modded = mapList.select(m -> m.mod != null).sortComparing(m -> m.mod.meta.displayName);
+                Seq<Map> nonModded = mapList.select(m -> m.mod == null).sortComparing(m -> m.plainName());
+                if(sortOrder){
+                    modded.reverse();
+                    nonModded.reverse();
+                }
+                ordered.addAll(modded);
+                ordered.addAll(nonModded);
+            }
             mapList = ordered;
         }else if(prioritizeCustom){
             Seq<Map> ordered = new Seq<>();
-            ordered.addAll(mapList.select(m -> m.custom)).sortComparing(m -> m.plainName());
-            ordered.addAll(mapList.select(m -> !m.custom).sortComparing(m -> m.plainName()));
+            ordered.addAll(mapList.select(m -> m.custom).sort(sortBy ? dateSorter : nameSorter));
+            ordered.addAll(mapList.select(m -> !m.custom).sort(sortBy ? dateSorter : nameSorter));
             mapList = ordered;
         }else{
-            mapList.sortComparing(m -> m.plainName());
+            mapList.sort(sortBy ? dateSorter : nameSorter);
         }
         for(Map map : mapList){
 
@@ -317,6 +338,26 @@ public abstract class MapListDialog extends BaseDialog{
                         });
                     });
                 }).expandX().pad(5f);
+            }).padBottom(10f);
+            menu.row();
+
+            menu.add("@editor.filters.sort").width(120f).left().row();
+            menu.table(Tex.button, t -> {
+                TextButton sortBtn = t.button(sortBy ? "@editor.filters.sort.date" : "@editor.filters.sort.name",
+                    ui.getIcon("filter"), Styles.flatTogglet, () -> {}).checked(b -> sortBy).get();
+                sortBtn.clicked(() -> {
+                    sortBy = !sortBy;
+                    Core.settings.put("editorsortby", sortBy);
+                    sortBtn.setText(sortBy ? "@editor.filters.sort.date" : "@editor.filters.sort.name");
+                    rebuildMaps();
+                });
+                var style = new ImageButton.ImageButtonStyle(Styles.emptyTogglei);
+                style.imageChecked = Icon.down;
+                t.button(Icon.up, style, () -> {
+                    sortOrder = !sortOrder;
+                    Core.settings.put("editorsortorder", sortOrder);
+                    rebuildMaps();
+                }).checked(b -> sortOrder);
             }).padBottom(10f);
             menu.row();
 
