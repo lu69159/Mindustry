@@ -131,6 +131,7 @@ public class NetServer implements ApplicationListener{
     private ObjectMap<String, Seq<Cons2<Player, Object>>> logicClientDataHandlers = new ObjectMap<>();
     /** Reused Seq<Player> for writing entity snapshots per team. */
     private Seq<Player> playersToSend = new Seq<>(false);
+    private Seq<NetConnection> tempConnections = new Seq<>(false);
     /** Used for entity snapshot timing. */
     public long snapshotSyncTime;
 
@@ -609,25 +610,25 @@ public class NetServer implements ApplicationListener{
         (player.isAdded() ? 4 : 0) |
         (player.con.hasBegunConnecting ? 8 : 0);
 
-        Call.debugStatusClient(player.con, flags, player.con.lastReceivedClientSnapshot, player.con.snapshotsSent);
-        Call.debugStatusClientUnreliable(player.con, flags, player.con.lastReceivedClientSnapshot, player.con.snapshotsSent);
+        Call.debugStatusClient(player.con, flags, player.con.lastReceivedClientSnapshot);
+        Call.debugStatusClientUnreliable(player.con, flags, player.con.lastReceivedClientSnapshot);
     }
 
     @Remote(variants = Variant.both, priority = PacketPriority.high)
-    public static void debugStatusClient(int value, int lastClientSnapshot, int snapshotsSent){
-        logClientStatus(true, value, lastClientSnapshot, snapshotsSent);
+    public static void debugStatusClient(int value, int lastClientSnapshot){
+        logClientStatus(true, value, lastClientSnapshot);
     }
 
     @Remote(variants = Variant.both, priority = PacketPriority.high, unreliable = true)
-    public static void debugStatusClientUnreliable(int value, int lastClientSnapshot, int snapshotsSent){
-        logClientStatus(false, value, lastClientSnapshot, snapshotsSent);
+    public static void debugStatusClientUnreliable(int value, int lastClientSnapshot){
+        logClientStatus(false, value, lastClientSnapshot);
     }
 
-    static void logClientStatus(boolean reliable, int value, int lastClientSnapshot, int snapshotsSent){
-        Log.info("@ Debug status received. disconnected = @, connected = @, added = @, begunConnecting = @ lastClientSnapshot = @, snapshotsSent = @",
+    static void logClientStatus(boolean reliable, int value, int lastClientSnapshot){
+        Log.info("@ Debug status received. disconnected = @, connected = @, added = @, begunConnecting = @ lastClientSnapshot = @",
         reliable ? "[RELIABLE]" : "[UNRELIABLE]",
         (value & 1) != 0, (value & 2) != 0, (value & 4) != 0, (value & 8) != 0,
-        lastClientSnapshot, snapshotsSent
+        lastClientSnapshot
         );
     }
 
@@ -1135,16 +1136,20 @@ public class NetServer implements ApplicationListener{
 
             Call.entitySnapshot((short)sent, syncStream.toByteArray());
         }
-
-        Groups.player.each(p -> p.con.snapshotsSent++);
     }
 
-    /** Checks isSyncHidden for only one player per team. Called if FoW is enabled but there is no custom syncHidden. */
+    /** Checks isSyncHidden for only one player per team. Called if FoW is enabled. */
     public void writeEntitySnapshotsTeam(Team team, Seq<Player> players) throws IOException{
         syncStream.reset();
 
         hiddenIds.clear();
         int sent = 0;
+        tempConnections.clear();
+
+        for(Player player : players){
+            //player.con must not be null here (the players seq must ONLY contain non-local connected clients)
+            tempConnections.add(player.con);
+        }
 
         for(Syncc entity : Groups.sync){
             if(entity.isSyncHidden(team)){
@@ -1158,9 +1163,7 @@ public class NetServer implements ApplicationListener{
 
             if(syncStream.size() > maxSnapshotSize){
                 dataStream.close();
-                short ssent = (short)sent;
-                var bytes = syncStream.toByteArray();
-                players.each(player -> Call.entitySnapshot(player.con, ssent, bytes));
+                sendEntitySnapshots(tempConnections, (short)sent, syncStream.toByteArray());
                 sent = 0;
                 syncStream.reset();
             }
@@ -1168,18 +1171,22 @@ public class NetServer implements ApplicationListener{
 
         if(sent > 0){
             dataStream.close();
-            short ssent = (short)sent;
-            var bytes = syncStream.toByteArray();
-            players.each(player -> Call.entitySnapshot(player.con, ssent, bytes));
+            sendEntitySnapshots(tempConnections, (short)sent, syncStream.toByteArray());
         }
 
         if(hiddenIds.size > 0){
-            players.each(player -> Call.hiddenSnapshot(player.con, hiddenIds));
+            var packet = new HiddenSnapshotCallPacket();
+            packet.ids = hiddenIds;
+            net.send(packet, tempConnections, false);
         }
-
-        players.each(player -> player.con.snapshotsSent++);
     }
 
+    protected void sendEntitySnapshots(Seq<NetConnection> connections, short amount, byte[] data){
+        var packet = new EntitySnapshotCallPacket();
+        packet.amount = amount;
+        packet.data = data;
+        net.send(packet, connections, false);
+    }
 
     /** Writes a custom snapshot containing player-local entities; this is for entities other players don't see. */
     public void writeCustomEntitySnapshot(Player player, Iterable<Syncc> entities) throws IOException{
@@ -1208,10 +1215,10 @@ public class NetServer implements ApplicationListener{
     }
 
     protected void writeEntity(Syncc entity, DataOutputStream dataStream) throws IOException{
-        dataStream.writeInt(entity.id()); //write id
-        dataStream.writeByte(entity.classId() & 0xFF); //write type ID
+        dataStream.writeInt(entity.id());
+        dataStream.writeByte(entity.classId() & 0xFF);
         entity.beforeWrite();
-        entity.writeSync(dataStreamWrites); //write entity itself
+        entity.writeSync(dataStreamWrites);
     }
 
     public String fixName(String name){
