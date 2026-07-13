@@ -544,11 +544,7 @@ public class Turret extends ReloadTurret{
                 ((Building)this).rotation = Mathf.mod(Mathf.round(rotation / 90f), 4);
             }
 
-            //turret always reloads regardless of whether it's targeting something
-            if(reloadWhileCharging || !charging()){
-                updateReload();
-                updateCooling();
-            }
+            handleReload();
 
             if(state.rules.fog){
                 float newRange = hasAmmo() ? peekAmmo().rangeChange : 0f;
@@ -714,6 +710,15 @@ public class Turret extends ReloadTurret{
 
         public boolean charging(){
             return queuedBullets > 0 && shoot.firstShotDelay > 0;
+        }
+
+        protected void handleReload(){
+            //turret always reloads regardless of whether it's targeting something
+            if((reloadWhileCharging || !charging()) && reloadCounter < reload){
+                //update the two reload related methods
+                updateReload();
+                updateCooling();
+            }
         }
 
         protected void updateReload(){
