@@ -341,10 +341,10 @@ public abstract class MapListDialog extends BaseDialog{
             }).padBottom(10f);
             menu.row();
 
-            menu.add("@editor.filters.sort").width(120f).left().row();
+            menu.add("@editor.filters.sort").left().row();
             menu.table(Tex.button, t -> {
                 TextButton sortBtn = t.button(sortBy ? "@editor.filters.sort.date" : "@editor.filters.sort.name",
-                    ui.getIcon("filter"), Styles.flatTogglet, () -> {}).checked(b -> sortBy).get();
+                    ui.getIcon("filter"), Styles.flatTogglet, iconMed, () -> {}).checked(b -> sortBy).get();
                 sortBtn.clicked(() -> {
                     sortBy = !sortBy;
                     Core.settings.put("editorsortby", sortBy);
